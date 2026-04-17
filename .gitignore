@@ -9,6 +9,8 @@ build/
 **/.env
 
 pubspec.lock
+examples/**/pubspec.lock
+test_apps/**/pubspec.lock
 **/pubspec_overrides.yaml
 
 .bitrise.secrets.yml
