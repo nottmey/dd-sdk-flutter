@@ -67,6 +67,7 @@ class DatadogSessionReplay {
           ),
           touchPrivacyLevel: _configuration.touchPrivacyLevel,
           imageDownscaling: _configuration.imageDownscaling,
+          iconRasterLogicalSize: _configuration.iconRasterLogicalSize,
           internalLogger: internalLogger,
         );
 
