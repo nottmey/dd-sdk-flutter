@@ -137,7 +137,9 @@ class DatadogSessionReplay {
 
     _platformEnabled = success;
     if (success) {
-      await _processor.start();
+      await _processor.start(
+        fontFamilyTransform: _configuration.fontFamilyTransform,
+      );
 
       if (_configuration.startRecordingImmediately) {
         startRecording();

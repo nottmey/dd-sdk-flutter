@@ -27,6 +27,13 @@ void main() {
     expect(initialPlatform, isA<DatadogSessionReplayPlatformNoop>());
   });
 
+  test('DatadogSessionReplayConfiguration default fontFamilyTransform is none',
+      () {
+    final c = DatadogSessionReplayConfiguration(replaySampleRate: 100.0);
+    expect(c.fontFamilyTransform.strategy, FontFamilyStrategy.none);
+    expect(c.fontFamilyTransform.rules, isEmpty);
+  });
+
   group('DatadogSessionReplay', () {
     final mockPlatform = MockDatadogSessionReplayPlatform();
     final mockInternalLogger = MockInternalLogger();

@@ -4,6 +4,7 @@
 
 import 'dart:isolate';
 
+import '../../datadog_session_replay.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 
@@ -21,7 +22,10 @@ class SessionReplayProcessor with WidgetsBindingObserver {
   SendPort? _mainSendPort;
   Isolate? _processorIsolate;
 
-  Future<void> start() async {
+  Future<void> start({
+    FontFamilyTransformConfig fontFamilyTransform =
+        const FontFamilyTransformConfig(),
+  }) async {
     WidgetsBinding.instance.addObserver(this);
     _processorIsolate = await Isolate.spawn(
       _captureProcessor,
@@ -29,6 +33,7 @@ class SessionReplayProcessor with WidgetsBindingObserver {
         RootIsolateToken.instance!,
         DatadogSessionReplayPlatform.instance.isolateToken,
         _mainReceivePort.sendPort,
+        fontFamilyTransform,
       ),
     );
 
@@ -54,7 +59,9 @@ class SessionReplayProcessor with WidgetsBindingObserver {
     final responsePort = args.sendPort;
     responsePort.send(commandPort.sendPort);
 
-    final internalProcessor = ProcessorWorker();
+    final internalProcessor = ProcessorWorker(
+      fontFamilyTransform: args.fontFamilyTransform,
+    );
 
     await for (final message in commandPort) {
       if (message is CaptureResult) {
@@ -74,10 +81,12 @@ class _ProcessorArgs {
   final RootIsolateToken rootIsolateToken;
   final Object? platformIsolateToken;
   final SendPort sendPort;
+  final FontFamilyTransformConfig fontFamilyTransform;
 
   const _ProcessorArgs(
     this.rootIsolateToken,
     this.platformIsolateToken,
     this.sendPort,
+    this.fontFamilyTransform,
   );
 }

@@ -45,6 +45,67 @@ enum TouchPrivacyLevel {
   hide,
 }
 
+/// Controls how captured `TextStyle.fontFamily` values are rewritten before
+/// they are sent as `SRTextStyle.family` on text wireframes.
+///
+/// Custom callbacks are intentionally not supported: Session Replay builds
+/// wireframes in a background isolate, which cannot serialize Dart closures—use
+/// [FontFamilyTransformConfig.rules] instead.
+enum FontFamilyStrategy {
+  /// Preserves reasonable CSS-compatible family names while
+  /// cleaning up Flutter-specific artifacts: strips `packages/<pkg>/`
+  /// asset-prefix, drops Flutter / platform sentinels that are not
+  /// valid on the web (e.g. `CupertinoSystemText`, `.SF UI Text`),
+  /// splits EditableText comma-joined fallback lists, quotes names
+  /// with spaces, and always appends a generic CSS fallback
+  /// (`sans-serif`) when none is present so the replay player has a
+  /// guaranteed fallback. Yields the iOS-parity stack when the
+  /// captured family is empty or fully sentinel.
+  smart,
+
+  /// Always emits the single hardcoded CSS stack
+  /// `-apple-system, BlinkMacSystemFont, Roboto, sans-serif`,
+  /// regardless of the captured family. Matches the current iOS SDK
+  /// behavior and is the safest choice if you do not want any
+  /// Flutter font names leaving the device.
+  fallback,
+
+  /// No transform is applied—the raw `TextStyle.fontFamily` (or
+  /// comma-joined fallback list from EditableText) captured by the
+  /// recorders is emitted verbatim on the wire. Intended for
+  /// debugging and backwards compatibility with the previous
+  /// behavior; not recommended for production because values like
+  /// `packages/google_fonts/Roboto` or `""` may not render correctly
+  /// in the replay player.
+  none,
+}
+
+/// Serialized font-family rewriting rules passed to the processor isolate.
+///
+/// Use [rules] for exact-match overrides only (no callbacks).
+class FontFamilyTransformConfig {
+  /// Default is [FontFamilyStrategy.none] for backwards compatibility; set
+  /// [FontFamilyStrategy.smart] for web-friendly font stacks.
+  final FontFamilyStrategy strategy;
+
+  /// Exact-match overrides, applied per comma-separated token before built-in
+  /// normalization when [strategy] is [FontFamilyStrategy.smart]. Keys are
+  /// case-sensitive—match either the captured token as recorded (trimmed /
+  /// outer quotes removed) or the same token after stripping a
+  /// `packages/<pkg>/` asset prefix. Values may be comma-separated stacks.
+  ///
+  /// Use an empty string key (`''`) in [rules] to supply a custom CSS stack
+  /// when the captured family is empty or becomes empty after dropping
+  /// sentinels; if absent, [FontFamilyStrategy.smart] uses the default iOS-parity
+  /// stack in those cases.
+  final Map<String, String> rules;
+
+  const FontFamilyTransformConfig({
+    this.strategy = FontFamilyStrategy.none,
+    this.rules = const {},
+  });
+}
+
 /// Configuration options for Session Replay, including
 /// default privacy levels.
 class DatadogSessionReplayConfiguration {
@@ -83,6 +144,13 @@ class DatadogSessionReplayConfiguration {
   /// begin capture.
   bool startRecordingImmediately;
 
+  /// Rewrites captured font family strings into web-compatible CSS stacks in
+  /// the processor isolate before snapshots are serialized.
+  ///
+  /// Defaults to [FontFamilyStrategy.none] so existing behavior is unchanged;
+  /// use [FontFamilyStrategy.smart] for web-friendly normalization.
+  FontFamilyTransformConfig fontFamilyTransform;
+
   DatadogSessionReplayConfiguration({
     required this.replaySampleRate,
     this.textAndInputPrivacyLevel = TextAndInputPrivacyLevel.maskAll,
@@ -90,6 +158,7 @@ class DatadogSessionReplayConfiguration {
     this.touchPrivacyLevel = TouchPrivacyLevel.hide,
     this.customEndpoint,
     this.startRecordingImmediately = true,
+    this.fontFamilyTransform = const FontFamilyTransformConfig(),
   });
 }
 

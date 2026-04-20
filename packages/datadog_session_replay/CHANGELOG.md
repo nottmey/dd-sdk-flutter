@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+* Add `DatadogSessionReplayConfiguration.fontFamilyTransform` (`FontFamilyStrategy` / `FontFamilyTransformConfig`) so captured font families can be rewritten to web-compatible CSS stacks in the processor isolate before upload (default `FontFamilyStrategy.none` for backwards compatibility; opt into `FontFamilyStrategy.smart` for normalization). In smart mode, `FontFamilyTransformConfig.rules['']` sets the stack when the captured family is empty or ends up empty after sentinel stripping.
 * Add `DatadogSessionReplayConfiguration.startRecordingImmediately` (default `true`), `DatadogSessionReplay.startRecording()`, and `DatadogSessionReplay.stopRecording()` to control Dart-side tree capture.
 
 ## 1.0.0-preview.11
