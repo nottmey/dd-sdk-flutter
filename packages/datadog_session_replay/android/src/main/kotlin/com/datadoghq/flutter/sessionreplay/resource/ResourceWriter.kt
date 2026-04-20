@@ -22,7 +22,9 @@ internal class DefaultResourceWriter(
 ) : ResourceWriter {
     override fun write(identifier: String, resourceData: ByteArray) {
         sdkCore.getFeature(ResourceFeature.SESSION_REPLAY_RESOURCES_FEATURE_NAME)
-            ?.withWriteContext { datadogContext, writeScope ->
+            ?.withWriteContext(
+                withFeatureContexts = setOf(Feature.RUM_FEATURE_NAME)
+            ) { datadogContext, writeScope ->
                 synchronized(this) {
                     val resourceEvent = ResourceEvent(
                         identifier = identifier,
