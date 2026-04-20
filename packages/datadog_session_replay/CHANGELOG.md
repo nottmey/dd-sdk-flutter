@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+* Add `DatadogSessionReplayConfiguration.imageDownscaling` (`ImageDownscaling`, default `disabled` for backwards compatibility). Set to `enabled` so images larger than the on-screen rendered size (logical bounds × device pixel ratio) or larger than `maxImageSize` (~800×800 pixels) are downscaled in Dart before upload; if raster downscale fails for an oversized image, a "Failed Downscale" placeholder is shown. When `disabled`, oversized images use the "Large Image" placeholder without attempting downscale.
 * Add `DatadogSessionReplayConfiguration.fontFamilyTransform` (`FontFamilyStrategy` / `FontFamilyTransformConfig`) so captured font families can be rewritten to web-compatible CSS stacks in the processor isolate before upload (default `FontFamilyStrategy.none` for backwards compatibility; opt into `FontFamilyStrategy.smart` for normalization). In smart mode, `FontFamilyTransformConfig.rules['']` sets the stack when the captured family is empty or ends up empty after sentinel stripping.
 * Add `DatadogSessionReplayConfiguration.startRecordingImmediately` (default `true`), `DatadogSessionReplay.startRecording()`, and `DatadogSessionReplay.stopRecording()` to control Dart-side tree capture.
 

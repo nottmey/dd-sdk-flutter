@@ -66,6 +66,8 @@ class DatadogSessionReplay {
             imagePrivacyLevel: _configuration.imagePrivacyLevel,
           ),
           touchPrivacyLevel: _configuration.touchPrivacyLevel,
+          imageDownscaling: _configuration.imageDownscaling,
+          internalLogger: internalLogger,
         );
 
   void addElement(Key key, Element e) {

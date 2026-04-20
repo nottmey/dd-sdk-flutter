@@ -45,6 +45,20 @@ enum TouchPrivacyLevel {
   hide,
 }
 
+/// Controls Dart-side downscaling of captured images before they are sent to
+/// the native resource pipeline.
+enum ImageDownscaling {
+  /// Legacy behavior: images larger than [maxImageSize] pixels are replaced by
+  /// a "Large Image" placeholder wireframe.
+  disabled,
+
+  /// Downscale images on the raster thread when needed so they fit both the
+  /// on-screen rendered size (logical bounds × device pixel ratio) and the
+  /// [maxImageSize] pixel budget (~800×800). If raster downscale fails for an
+  /// oversized image, a "Failed Downscale" placeholder is shown instead.
+  enabled,
+}
+
 /// Controls how captured `TextStyle.fontFamily` values are rewritten before
 /// they are sent as `SRTextStyle.family` on text wireframes.
 ///
@@ -151,6 +165,15 @@ class DatadogSessionReplayConfiguration {
   /// use [FontFamilyStrategy.smart] for web-friendly normalization.
   FontFamilyTransformConfig fontFamilyTransform;
 
+  /// When [ImageDownscaling.enabled], images are downscaled in Dart when they
+  /// exceed the on-screen rendered size or [maxImageSize] so they can still be
+  /// uploaded. If downscale fails for an oversized image, a "Failed Downscale"
+  /// placeholder is shown.
+  ///
+  /// When [ImageDownscaling.disabled] (default), images above [maxImageSize]
+  /// use the legacy placeholder behavior.
+  ImageDownscaling imageDownscaling;
+
   DatadogSessionReplayConfiguration({
     required this.replaySampleRate,
     this.textAndInputPrivacyLevel = TextAndInputPrivacyLevel.maskAll,
@@ -159,6 +182,7 @@ class DatadogSessionReplayConfiguration {
     this.customEndpoint,
     this.startRecordingImmediately = true,
     this.fontFamilyTransform = const FontFamilyTransformConfig(),
+    this.imageDownscaling = ImageDownscaling.disabled,
   });
 }
 
