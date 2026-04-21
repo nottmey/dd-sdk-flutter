@@ -7,7 +7,6 @@ import 'package:datadog_flutter_plugin/datadog_internal.dart';
 import 'package:datadog_session_replay/datadog_session_replay.dart';
 import 'package:datadog_session_replay/src/datadog_session_replay_platform_interface.dart';
 import 'package:datadog_session_replay/src/datadog_session_replay_platform_noop.dart';
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:plugin_platform_interface/plugin_platform_interface.dart';
@@ -45,14 +44,6 @@ void main() {
       () {
     final c = DatadogSessionReplayConfiguration(replaySampleRate: 100.0);
     expect(c.iconRasterLogicalSize, 20.0);
-  });
-
-  test('DatadogSessionReplayConfiguration default customPaintConfig is placeholder',
-      () {
-    final c = DatadogSessionReplayConfiguration(replaySampleRate: 100.0);
-    expect(c.customPaintConfig.strategy, CustomPaintStrategy.placeholder);
-    expect(c.customPaintConfig.borderColor, const Color(0xFF000000));
-    expect(c.customPaintConfig.borderWidth, 1.0);
   });
 
   group('DatadogSessionReplay', () {

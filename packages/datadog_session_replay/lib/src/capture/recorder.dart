@@ -132,7 +132,6 @@ class SessionReplayRecorder {
     ImageDownscaling imageDownscaling = ImageDownscaling.disabled,
     double iconRasterLogicalSize = 20.0,
     InternalLogger? internalLogger,
-    CustomPaintConfig customPaintConfig = const CustomPaintConfig(),
   }) : this._(
           KeyGenerator(),
           timeProvider,
@@ -141,7 +140,6 @@ class SessionReplayRecorder {
           imageDownscaling,
           iconRasterLogicalSize,
           internalLogger,
-          customPaintConfig,
         );
 
   SessionReplayRecorder._(
@@ -152,7 +150,6 @@ class SessionReplayRecorder {
     ImageDownscaling imageDownscaling,
     double iconRasterLogicalSize,
     InternalLogger? internalLogger,
-    CustomPaintConfig customPaintConfig,
   ) {
     _populateElementRecorderMap([
       ContainerRecorder(keyGenerator),
@@ -169,7 +166,7 @@ class SessionReplayRecorder {
         imageDownscaling: imageDownscaling,
         internalLogger: internalLogger,
       ),
-      CustomPaintRecorder(keyGenerator, customPaintConfig: customPaintConfig),
+      CustomPaintRecorder(keyGenerator),
       PrivacyRecorder(keyGenerator),
     ]);
   }
