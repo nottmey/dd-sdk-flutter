@@ -3,6 +3,7 @@
 // Copyright 2025-Present Datadog, Inc.
 
 import 'package:datadog_flutter_plugin/datadog_flutter_plugin.dart';
+import 'package:flutter/widgets.dart' show Color;
 
 import 'src/datadog_session_replay_plugin.dart';
 
@@ -57,6 +58,41 @@ enum ImageDownscaling {
   /// [maxImageSize] pixel budget (~800×800). If raster downscale fails for an
   /// oversized image, a "Failed Downscale" placeholder is shown instead.
   enabled,
+}
+
+/// How [CustomPaint] widgets are represented in Session Replay wireframes.
+enum CustomPaintStrategy {
+  /// Do not emit any wireframe for [CustomPaint] widgets.
+  /// Children of the [CustomPaint] are still captured.
+  hide,
+
+  /// Emit a placeholder wireframe (grey box with 'x'). Default for
+  /// backwards compatibility.
+  placeholder,
+
+  /// Emit a shape wireframe with a transparent background and a thin
+  /// border at the [CustomPaint] bounds.
+  outlinedBox,
+}
+
+/// Options for capturing [CustomPaint] in Session Replay.
+///
+/// [CustomPaintStrategy.outlinedBox] uses [borderColor] and [borderWidth].
+class CustomPaintConfig {
+  final CustomPaintStrategy strategy;
+
+  /// Only used when [strategy] is [CustomPaintStrategy.outlinedBox].
+  final Color borderColor;
+
+  /// Only used when [strategy] is [CustomPaintStrategy.outlinedBox].
+  /// Defaults to `1.0` logical pixels; rounded to an integer for the wireframe.
+  final double borderWidth;
+
+  const CustomPaintConfig({
+    this.strategy = CustomPaintStrategy.placeholder,
+    this.borderColor = const Color(0xFF000000),
+    this.borderWidth = 1.0,
+  });
 }
 
 /// Controls how captured `TextStyle.fontFamily` values are rewritten before
@@ -183,6 +219,11 @@ class DatadogSessionReplayConfiguration {
   /// Defaults to `20`.
   double iconRasterLogicalSize;
 
+  /// How [CustomPaint] widgets appear in replays (placeholder, outline, or hidden).
+  ///
+  /// Defaults to [CustomPaintConfig] with [CustomPaintStrategy.placeholder].
+  CustomPaintConfig customPaintConfig;
+
   DatadogSessionReplayConfiguration({
     required this.replaySampleRate,
     this.textAndInputPrivacyLevel = TextAndInputPrivacyLevel.maskAll,
@@ -193,6 +234,7 @@ class DatadogSessionReplayConfiguration {
     this.fontFamilyTransform = const FontFamilyTransformConfig(),
     this.imageDownscaling = ImageDownscaling.disabled,
     this.iconRasterLogicalSize = 20.0,
+    this.customPaintConfig = const CustomPaintConfig(),
   });
 }
 

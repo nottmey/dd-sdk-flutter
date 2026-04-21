@@ -69,6 +69,7 @@ class DatadogSessionReplay {
           imageDownscaling: _configuration.imageDownscaling,
           iconRasterLogicalSize: _configuration.iconRasterLogicalSize,
           internalLogger: internalLogger,
+          customPaintConfig: _configuration.customPaintConfig,
         );
 
   void addElement(Key key, Element e) {

@@ -4,11 +4,13 @@
 import 'package:datadog_common_test/datadog_common_test.dart';
 import 'package:datadog_session_replay/datadog_session_replay.dart';
 import 'package:datadog_session_replay/src/capture/capture_node.dart';
+import 'package:datadog_session_replay/src/capture/element_recorders/common_nodes.dart';
+import 'package:datadog_session_replay/src/capture/element_recorders/container_recorder.dart';
 import 'package:datadog_session_replay/src/capture/element_recorders/custom_paint_recorder.dart';
 import 'package:datadog_session_replay/src/capture/recorder.dart';
 import 'package:datadog_session_replay/src/rum_context.dart';
 import 'package:datadog_session_replay/src/sr_data_models.dart';
-import 'package:flutter/widgets.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
@@ -123,5 +125,191 @@ void main() {
 
     // Then
     expect(capture, isNull);
+  });
+
+  testWidgets('hide strategy emits no wireframe for custom paint alone', (
+    tester,
+  ) async {
+    final keys = KeyGenerator();
+    final hideRecorder = SessionReplayRecorder.withCustomRecorders(
+      [
+        CustomPaintRecorder(
+          keys,
+          customPaintConfig: const CustomPaintConfig(
+            strategy: CustomPaintStrategy.hide,
+          ),
+        ),
+      ],
+      defaultCapturePrivacy: TreeCapturePrivacy(
+        textAndInputPrivacyLevel: TextAndInputPrivacyLevel.maskSensitiveInputs,
+        imagePrivacyLevel: ImagePrivacyLevel.maskNonAssetsOnly,
+      ),
+      touchPrivacyLevel: TouchPrivacyLevel.show,
+    );
+    hideRecorder.updateContext(context);
+
+    final width = randomDouble(min: 10, max: 50);
+    final height = randomDouble(min: 10, max: 50);
+    await tester.pumpWidget(
+      SimpleTestCapture(
+        key: const Key('hide'),
+        recorder: hideRecorder,
+        child: Directionality(
+          textDirection: TextDirection.ltr,
+          child: Stack(
+            children: [
+              SizedBox(
+                width: width,
+                height: height,
+                child: CustomPaint(painter: _FakeCustomPainter()),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    final capture = await hideRecorder.performCapture();
+    expect(capture, isNull);
+  });
+
+  testWidgets('outlinedBox strategy emits shape wireframe with border', (
+    tester,
+  ) async {
+    final keys = KeyGenerator();
+    final outlineRecorder = SessionReplayRecorder.withCustomRecorders(
+      [
+        CustomPaintRecorder(
+          keys,
+          customPaintConfig: const CustomPaintConfig(
+            strategy: CustomPaintStrategy.outlinedBox,
+            borderColor: Color(0xFFFF0000),
+            borderWidth: 3,
+          ),
+        ),
+      ],
+      defaultCapturePrivacy: TreeCapturePrivacy(
+        textAndInputPrivacyLevel: TextAndInputPrivacyLevel.maskSensitiveInputs,
+        imagePrivacyLevel: ImagePrivacyLevel.maskNonAssetsOnly,
+      ),
+      touchPrivacyLevel: TouchPrivacyLevel.show,
+    );
+    outlineRecorder.updateContext(context);
+
+    final width = randomDouble(min: 10, max: 50);
+    final height = randomDouble(min: 10, max: 50);
+    await tester.pumpWidget(
+      SimpleTestCapture(
+        key: const Key('outline'),
+        recorder: outlineRecorder,
+        child: Directionality(
+          textDirection: TextDirection.ltr,
+          child: Stack(
+            children: [
+              SizedBox(
+                width: width,
+                height: height,
+                child: CustomPaint(painter: _FakeCustomPainter()),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    final capture = await outlineRecorder.performCapture();
+    expect(capture, isNotNull);
+    final nodes = capture!.viewTreeSnapshot.nodes;
+    expect(nodes.length, 1);
+
+    final built = nodes.first.buildWireframes();
+    expect(built.length, 1);
+    final wf = built.first as SRShapeWireframe;
+    expect(wf.shapeStyle?.backgroundColor, srTransparentColorString);
+    expect(wf.border?.color, '#ff0000ff');
+    expect(wf.border?.width, 3);
+    expect(wf.width, width.round());
+    expect(wf.height, height.round());
+  });
+
+  testWidgets('hide and outlinedBox still capture CustomPaint child ColoredBox', (
+    tester,
+  ) async {
+    final width = randomDouble(min: 10, max: 50);
+    final height = randomDouble(min: 10, max: 50);
+
+    for (final strategy in [
+      CustomPaintStrategy.hide,
+      CustomPaintStrategy.outlinedBox,
+    ]) {
+      final keys = KeyGenerator();
+      final r = SessionReplayRecorder.withCustomRecorders(
+        [
+          ContainerRecorder(keys),
+          CustomPaintRecorder(
+            keys,
+            customPaintConfig: CustomPaintConfig(strategy: strategy),
+          ),
+        ],
+        defaultCapturePrivacy: TreeCapturePrivacy(
+          textAndInputPrivacyLevel: TextAndInputPrivacyLevel.maskSensitiveInputs,
+          imagePrivacyLevel: ImagePrivacyLevel.maskNonAssetsOnly,
+        ),
+        touchPrivacyLevel: TouchPrivacyLevel.show,
+      );
+      r.updateContext(context);
+
+      await tester.pumpWidget(
+        SimpleTestCapture(
+          key: Key('child-$strategy'),
+          recorder: r,
+          child: Directionality(
+            textDirection: TextDirection.ltr,
+            child: Stack(
+              children: [
+                SizedBox(
+                  width: width,
+                  height: height,
+                  child: CustomPaint(
+                    painter: _FakeCustomPainter(),
+                    child: const ColoredBox(color: Color(0xFF112233)),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+
+      final capture = await r.performCapture();
+      expect(capture, isNotNull);
+      final treeNodes = capture!.viewTreeSnapshot.nodes;
+      final expectedCount =
+          strategy == CustomPaintStrategy.hide ? 1 : 2;
+      expect(treeNodes.length, expectedCount, reason: '$strategy');
+
+      final hasColoredBox = treeNodes.any((n) {
+        if (n is! ContainerNode) return false;
+        final wfs = n.buildWireframes();
+        if (wfs.length != 1 || wfs.first is! SRShapeWireframe) return false;
+        final s = wfs.first as SRShapeWireframe;
+        return s.shapeStyle?.backgroundColor == '#112233ff';
+      });
+      expect(hasColoredBox, isTrue, reason: '$strategy');
+
+      if (strategy == CustomPaintStrategy.hide) {
+        expect(treeNodes.single, isA<ContainerNode>());
+        expect(
+          treeNodes.every((n) {
+            final wfs = n.buildWireframes();
+            return wfs.every((w) => w is! SRPlaceholderWireframe);
+          }),
+          isTrue,
+        );
+      } else {
+        expect(treeNodes.any((n) => n is CustomPaintOutlineNode), isTrue);
+        expect(treeNodes.any((n) => n is ContainerNode), isTrue);
+      }
+    }
   });
 }
