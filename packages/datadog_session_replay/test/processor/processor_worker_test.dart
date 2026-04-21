@@ -11,6 +11,8 @@ import 'package:datadog_session_replay/src/capture/recorder.dart';
 import 'package:datadog_session_replay/src/capture/view_tree_snapshot.dart';
 import 'package:datadog_session_replay/src/datadog_session_replay_platform_interface.dart';
 import 'package:datadog_session_replay/src/extensions.dart';
+import 'package:datadog_session_replay/datadog_session_replay.dart';
+import 'package:datadog_session_replay/src/processor/font_family_transform.dart';
 import 'package:datadog_session_replay/src/processor/processor_worker.dart';
 import 'package:datadog_session_replay/src/rum_context.dart';
 import 'package:datadog_session_replay/src/sr_data_models.dart';
@@ -26,6 +28,20 @@ class MockDatadogSessionReplayPlatform extends Mock
     implements DatadogSessionReplayPlatform {}
 
 class MockCaptureNode extends Mock implements CaptureNode {}
+
+SRShapeWireframe createMockShapeWireframe(int id) {
+  return SRShapeWireframe(
+    id: id,
+    x: randomInt(),
+    y: randomInt(),
+    width: randomInt(),
+    height: randomInt(),
+    shapeStyle: SRShapeStyle(
+      cornerRadius: randomDouble(min: 0.0, max: 5.0),
+      backgroundColor: randomColor().toHexString(),
+    ),
+  );
+}
 
 void main() {
   late MockDatadogSessionReplayPlatform mockPlatform;
@@ -72,19 +88,74 @@ void main() {
     verifyNoMoreInteractions(mockPlatform);
   });
 
-  SRShapeWireframe createMockShapeWireframe(int id) {
-    return SRShapeWireframe(
-      id: id,
-      x: randomInt(),
-      y: randomInt(),
-      width: randomInt(),
-      height: randomInt(),
-      shapeStyle: SRShapeStyle(
-        cornerRadius: randomDouble(min: 0.0, max: 5.0),
-        backgroundColor: randomColor().toHexString(),
+  test('generateWireframes maps text wireframe font family via smart transform',
+      () {
+    final mockCapture = MockCaptureNode();
+    final original = SRTextWireframe(
+      id: 5,
+      x: 0,
+      y: 0,
+      width: 100,
+      height: 20,
+      text: 'hello',
+      textStyle: SRTextStyle(
+        color: '#FF000000',
+        family: '',
+        size: 14,
       ),
     );
-  }
+    when(() => mockCapture.buildWireframes()).thenReturn([original]);
+
+    final worker = ProcessorWorker(
+      fontFamilyTransform: const FontFamilyTransformConfig(
+        strategy: FontFamilyStrategy.smart,
+      ),
+    );
+    final capture = CaptureResult(
+      ViewTreeSnapshot(
+        date: DateTime.now(),
+        context: RUMContext(
+          applicationId: randomString(),
+          sessionId: randomString(),
+          viewId: randomString(),
+        ),
+        viewportSize: Size(600, 800),
+        nodes: [mockCapture],
+      ),
+      null,
+    );
+
+    final wireframes = worker.generateWireframes(capture);
+    expect(wireframes.length, 1);
+    final text = wireframes.single as SRTextWireframe;
+    expect(text.textStyle.family, kIosParityFontStack);
+    expect(identical(text, original), isFalse);
+  });
+
+  test('generateWireframes leaves non-text wireframes unchanged', () {
+    final mockCapture = MockCaptureNode();
+    final shape = createMockShapeWireframe(0);
+    when(() => mockCapture.buildWireframes()).thenReturn([shape]);
+
+    final worker =
+        ProcessorWorker(fontFamilyTransform: const FontFamilyTransformConfig());
+    final capture = CaptureResult(
+      ViewTreeSnapshot(
+        date: DateTime.now(),
+        context: RUMContext(
+          applicationId: randomString(),
+          sessionId: randomString(),
+          viewId: randomString(),
+        ),
+        viewportSize: Size(600, 800),
+        nodes: [mockCapture],
+      ),
+      null,
+    );
+
+    final wireframes = worker.generateWireframes(capture);
+    expect(wireframes.single, shape);
+  });
 
   test('processSnapshot for first snapshot generates full record', () async {
     // Given

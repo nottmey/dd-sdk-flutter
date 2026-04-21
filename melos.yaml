@@ -269,6 +269,53 @@ scripts:
   pub:get:
     exec: flutter pub get
 
+  # Resolves dependencies for pubspecs outside Melos `packages:` (e.g. examples,
+  # tools) so the analyzer/IDE see fewer missing-package warnings during
+  # monorepo development. Safe to delete this script if you no longer need it.
+  pub:get:outside:
+    run: |
+      set -eu
+      set -o pipefail
+      cd "$MELOS_ROOT_PATH"
+      melos_paths="$(mktemp)"
+      trap 'rm -f "$melos_paths"' EXIT
+      melos list --parsable | while read -r p; do
+        (cd "$p" && pwd)
+      done | sort -u >"$melos_paths"
+      abs_dir() { (cd "$1" && pwd); }
+      run_pub_get() {
+        dir="$1"
+        echo "pub get (outside melos): $dir"
+        (cd "$dir" && flutter pub get)
+      }
+      if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+        git ls-files | grep -E '(^|/)pubspec\.yaml$' | while IFS= read -r spec; do
+          pkg_root="$(dirname "$spec")"
+          pkg_root="${pkg_root:-.}"
+          abs="$(abs_dir "$pkg_root")"
+          if grep -qxF "$abs" "$melos_paths"; then
+            continue
+          fi
+          run_pub_get "$abs"
+        done
+      else
+        find "$MELOS_ROOT_PATH" -name pubspec.yaml \
+          ! -path '*/.dart_tool/*' \
+          ! -path '*/build/*' | while IFS= read -r spec; do
+          [ -f "$spec" ] || continue
+          pkg_root="$(dirname "$spec")"
+          abs="$(abs_dir "$pkg_root")"
+          if grep -qxF "$abs" "$melos_paths"; then
+            continue
+          fi
+          run_pub_get "$abs"
+        done
+      fi
+    description: |
+      Run `flutter pub get` in every package root (directory containing
+      pubspec.yaml) that is not listed by `melos list`. Uses git-tracked
+      pubspec files when inside a git work tree; otherwise falls back to find(1).
+
   pod_update:
     run: cd example/ios && pod update --repo-update
     exec:

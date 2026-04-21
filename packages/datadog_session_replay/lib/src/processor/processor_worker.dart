@@ -5,6 +5,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import '../../datadog_session_replay.dart';
 import 'package:meta/meta.dart';
 
 import '../capture/pointer_capture.dart';
@@ -13,11 +14,19 @@ import '../capture/view_tree_snapshot.dart';
 import '../datadog_session_replay_platform_interface.dart';
 import '../sr_data_models.dart';
 import 'diff.dart';
+import 'font_family_transform.dart';
 
 /// An internal class that does all of the work for processing a ViewSnapshot into SRRecords,
 /// including creating diffs for non full records. When complete, the processor sends
 /// the records to the native method channel so they can be serialized and sent to intake.
 class ProcessorWorker {
+  ProcessorWorker({
+    FontFamilyTransformConfig fontFamilyTransform =
+        const FontFamilyTransformConfig(),
+  }) : _fontTransform = FontFamilyTransform(fontFamilyTransform);
+
+  final FontFamilyTransform _fontTransform;
+
   ViewTreeSnapshot? _lastSnapshot;
   List<SRWireframe>? _lastWireframes;
   final Map<String, int> _recordCountByViewId = {};
@@ -118,6 +127,12 @@ class ProcessorWorker {
   List<SRWireframe> generateWireframes(CaptureResult result) {
     return result.viewTreeSnapshot.nodes
         .expand((element) => element.buildWireframes())
+        .map((wireframe) {
+          if (wireframe is SRTextWireframe) {
+            return _fontTransform.rewrite(wireframe);
+          }
+          return wireframe;
+        })
         .toList();
   }
 

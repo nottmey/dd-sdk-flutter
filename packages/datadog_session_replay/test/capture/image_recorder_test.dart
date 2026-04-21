@@ -6,6 +6,8 @@ import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:datadog_common_test/datadog_common_test.dart';
+import 'package:datadog_flutter_plugin/datadog_flutter_plugin.dart';
+import 'package:datadog_flutter_plugin/datadog_internal.dart';
 import 'package:datadog_session_replay/datadog_session_replay.dart';
 import 'package:datadog_session_replay/src/capture/capture_node.dart';
 import 'package:datadog_session_replay/src/capture/element_recorders/image_recorder.dart';
@@ -25,8 +27,11 @@ class MockDatadogSessionReplayPlatform extends Mock
     with MockPlatformInterfaceMixin
     implements DatadogSessionReplayPlatform {}
 
+class MockInternalLogger extends Mock implements InternalLogger {}
+
 void main() {
   late MockDatadogSessionReplayPlatform platform;
+  late MockInternalLogger internalLogger;
   late SessionReplayRecorder recorder;
   late RUMContext context;
 
@@ -48,9 +53,16 @@ void main() {
   setUp(() {
     final KeyGenerator keyGenerator = KeyGenerator();
     platform = MockDatadogSessionReplayPlatform();
+    internalLogger = MockInternalLogger();
     DatadogSessionReplayPlatform.instance = platform;
     recorder = SessionReplayRecorder.withCustomRecorders(
-      [ImageRecorder(keyGenerator)],
+      [
+        ImageRecorder(
+          keyGenerator,
+          imageDownscaling: ImageDownscaling.enabled,
+          internalLogger: internalLogger,
+        ),
+      ],
       defaultCapturePrivacy: TreeCapturePrivacy(
         textAndInputPrivacyLevel: TextAndInputPrivacyLevel.maskSensitiveInputs,
         imagePrivacyLevel: ImagePrivacyLevel.maskNone,
@@ -271,8 +283,263 @@ void main() {
     expect(wireframe.resourceId, randomId);
   });
 
-  testWidgets('large images build placeholder wireframe', (tester) async {
+  testWidgets('large images are downscaled when enabled', (tester) async {
+    int? savedW;
+    int? savedH;
+    when(
+      () => platform.saveImageForProcessing(any(), any(), any(), any()),
+    ).thenAnswer((invocation) {
+      savedW = invocation.positionalArguments[1] as int;
+      savedH = invocation.positionalArguments[2] as int;
+      return Future.value();
+    });
+
+    final x = randomDouble(min: 10, max: 50);
+    final y = randomDouble(min: 10, max: 50);
+    const width = 900;
+    const height = 900;
+
+    ui.Image? bigImage = await tester.runAsync(() {
+      return createTestImage(width: width, height: height);
+    });
+
+    final imageProvider = TestImageProvider(bigImage!);
+    final tree = MaterialApp(
+      home: SimpleTestCapture(
+        key: Key('key'),
+        recorder: recorder,
+        child: Stack(
+          children: [
+            Positioned(
+              top: y,
+              left: x,
+              width: width.toDouble(),
+              height: height.toDouble(),
+              child: Image(image: imageProvider),
+            ),
+          ],
+        ),
+      ),
+    );
+    await tester.pumpWidget(tree);
+    imageProvider.complete();
+    await tester.pump();
+
+    CaptureResult? capture;
+    await tester.runAsync(() async {
+      capture = await recorder.performCapture();
+    });
+
+    expect(capture!.viewTreeSnapshot.nodes.length, 1);
+    final capturedImageNode =
+        capture!.viewTreeSnapshot.nodes.last as ResourceImageNode;
+    expect(capturedImageNode, isA<ResourceImageNode>());
+
+    verify(
+      () => platform.saveImageForProcessing(
+        capturedImageNode.resourceKey,
+        any(),
+        any(),
+        any(),
+      ),
+    );
+    expect(savedW! * savedH!, lessThanOrEqualTo(maxImageSize));
+    expect(savedW! / savedH!, closeTo(width / height, 0.02));
+
+    verify(
+      () => internalLogger.log(
+        CoreLoggerLevel.debug,
+        any(
+          that: predicate<String>((m) {
+            return m.contains('Session Replay image downscale') &&
+                m.contains('${width}x$height') &&
+                m.contains('${savedW}x$savedH') &&
+                m.contains('success=true') &&
+                RegExp(r'took \d+ms').hasMatch(m);
+          }),
+        ),
+      ),
+    ).called(1);
+
+    bigImage.dispose();
+  });
+
+  testWidgets(
+    'images larger than paint bounds are downscaled to DPR-scaled bounds',
+    (tester) async {
+      when(
+        () => platform.saveImageForProcessing(any(), any(), any(), any()),
+      ).thenAnswer((_) => Future.value());
+
+      ui.Image? bigImage = await tester.runAsync(() {
+        return createTestImage(width: 1000, height: 1000);
+      });
+
+      final imageProvider = TestImageProvider(bigImage!);
+      final tree = MaterialApp(
+        home: SimpleTestCapture(
+          key: Key('key'),
+          recorder: recorder,
+          child: Stack(
+            children: [
+              Positioned(
+                top: 0,
+                left: 0,
+                width: 200,
+                height: 200,
+                child: Image(image: imageProvider),
+              ),
+            ],
+          ),
+        ),
+      );
+      await tester.pumpWidget(tree);
+      imageProvider.complete();
+      await tester.pump();
+
+      CaptureResult? capture;
+      await tester.runAsync(() async {
+        capture = await recorder.performCapture();
+      });
+
+      expect(capture!.viewTreeSnapshot.nodes.length, 1);
+      final node = capture!.viewTreeSnapshot.nodes.last as ResourceImageNode;
+      final a = node.attributes;
+      final expected = ImageRecorder.targetCaptureDimensionsForTest(
+        1000,
+        1000,
+        CapturedViewAttributes(
+          paintBounds: a.paintBounds,
+          scaleX: a.scaleX,
+          scaleY: a.scaleY,
+        ),
+        tester.view.devicePixelRatio,
+      );
+
+      verify(
+        () => platform.saveImageForProcessing(
+          node.resourceKey,
+          expected.$1,
+          expected.$2,
+          any(),
+        ),
+      );
+
+      bigImage.dispose();
+    });
+
+  testWidgets('normal-sized image is not downscaled', (tester) async {
+    when(
+      () => platform.saveImageForProcessing(any(), any(), any(), any()),
+    ).thenAnswer((_) => Future.value());
+
+    final x = randomDouble(min: 10, max: 50);
+    final y = randomDouble(min: 10, max: 50);
+
+    final imageProvider = TestImageProvider(testImage);
+    final tree = MaterialApp(
+      home: SimpleTestCapture(
+        key: Key('key'),
+        recorder: recorder,
+        child: Stack(
+          children: [
+            Positioned(
+              top: y,
+              left: x,
+              width: testImage.width.toDouble(),
+              height: testImage.height.toDouble(),
+              child: Image(image: imageProvider),
+            ),
+          ],
+        ),
+      ),
+    );
+    await tester.pumpWidget(tree);
+    imageProvider.complete();
+    await tester.pump();
+
+    CaptureResult? capture;
+    await tester.runAsync(() async {
+      capture = await recorder.performCapture();
+    });
+
+    expect(capture, isNotNull);
+    verify(
+      () => platform.saveImageForProcessing(
+        any(),
+        testImage.width,
+        testImage.height,
+        any(),
+      ),
+    );
+  });
+
+  group('targetCaptureDimensionsForTest', () {
+    test('clamps to maxImageSize preserving aspect ratio', () {
+      final attrs = CapturedViewAttributes(
+        paintBounds: Rect.fromLTWH(0, 0, 900, 900),
+        scaleX: 1,
+        scaleY: 1,
+      );
+      final (w, h) = ImageRecorder.targetCaptureDimensionsForTest(
+        900,
+        900,
+        attrs,
+        1.0,
+      );
+      expect(w * h, lessThanOrEqualTo(maxImageSize));
+      expect(w, 800);
+      expect(h, 800);
+    });
+
+    test('fits to render bounds times DPR without exceeding source size', () {
+      final attrs = CapturedViewAttributes(
+        paintBounds: Rect.fromLTWH(0, 0, 200, 200),
+        scaleX: 1,
+        scaleY: 1,
+      );
+      final (w, h) = ImageRecorder.targetCaptureDimensionsForTest(
+        1000,
+        1000,
+        attrs,
+        3.0,
+      );
+      expect(w, 600);
+      expect(h, 600);
+    });
+
+    test('does not upscale small sources', () {
+      final attrs = CapturedViewAttributes(
+        paintBounds: Rect.fromLTWH(0, 0, 200, 200),
+        scaleX: 1,
+        scaleY: 1,
+      );
+      final (w, h) = ImageRecorder.targetCaptureDimensionsForTest(
+        50,
+        50,
+        attrs,
+        1.0,
+      );
+      expect(w, 50);
+      expect(h, 50);
+    });
+  });
+
+  testWidgets('large images build placeholder wireframe when downscaling disabled', (
+    tester,
+  ) async {
     // Given
+    final keyGenerator = KeyGenerator();
+    recorder = SessionReplayRecorder.withCustomRecorders(
+      [ImageRecorder(keyGenerator, imageDownscaling: ImageDownscaling.disabled)],
+      defaultCapturePrivacy: TreeCapturePrivacy(
+        textAndInputPrivacyLevel: TextAndInputPrivacyLevel.maskSensitiveInputs,
+        imagePrivacyLevel: ImagePrivacyLevel.maskNone,
+      ),
+      touchPrivacyLevel: TouchPrivacyLevel.show,
+    );
+    recorder.updateContext(context);
+
     final x = randomDouble(min: 10, max: 50);
     final y = randomDouble(min: 10, max: 50);
     final width = 900;
@@ -328,7 +595,18 @@ void main() {
   });
 
   testWidgets('captured image below width has no label', (tester) async {
-    // Given
+    // Given — large image with downscaling disabled so we still get a placeholder.
+    final keyGenerator = KeyGenerator();
+    recorder = SessionReplayRecorder.withCustomRecorders(
+      [ImageRecorder(keyGenerator, imageDownscaling: ImageDownscaling.disabled)],
+      defaultCapturePrivacy: TreeCapturePrivacy(
+        textAndInputPrivacyLevel: TextAndInputPrivacyLevel.maskSensitiveInputs,
+        imagePrivacyLevel: ImagePrivacyLevel.maskNone,
+      ),
+      touchPrivacyLevel: TouchPrivacyLevel.show,
+    );
+    recorder.updateContext(context);
+
     final x = randomDouble(min: 10, max: 50);
     final y = randomDouble(min: 10, max: 50);
     final width = 900;
