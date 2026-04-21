@@ -707,9 +707,63 @@ void main() {
       verifyZeroInteractions(platform);
     });
 
-    // Missing Test - ImagePrivacyLevel.maskNonAssetsOnly checks for Assets.
-    // This requires being able to load an asset, so it is checked as part of the
-    // golden tests, not here.
+    testWidgets('maskNonAssetsOnly processes ExactAssetImage as asset',
+        (tester) async {
+      // Given
+      recorder.defaultTreeCapturePrivacy = TreeCapturePrivacy(
+        textAndInputPrivacyLevel: TextAndInputPrivacyLevel.maskSensitiveInputs,
+        imagePrivacyLevel: ImagePrivacyLevel.maskNonAssetsOnly,
+      );
+
+      when(
+        () => platform.saveImageForProcessing(any(), any(), any(), any()),
+      ).thenAnswer((_) => Future.value());
+      when(() => platform.resourceIdForKey(any())).thenReturn(randomString());
+
+      final imageProvider = TestExactAssetImage(testImage);
+      final tree = MaterialApp(
+        home: SimpleTestCapture(
+          key: Key('key'),
+          recorder: recorder,
+          child: Stack(
+            children: [
+              Positioned(
+                top: 10,
+                left: 10,
+                width: testImage.width.toDouble(),
+                height: testImage.height.toDouble(),
+                child: Image(image: imageProvider),
+              ),
+            ],
+          ),
+        ),
+      );
+      await tester.pumpWidget(tree);
+      imageProvider.complete();
+      await tester.pump();
+
+      // When
+      CaptureResult? capture;
+      await tester.runAsync(() async {
+        capture = await recorder.performCapture();
+      });
+
+      // Then
+      final allWireframes = capture!.viewTreeSnapshot.nodes
+          .expand((node) => node.buildWireframes())
+          .toList();
+
+      expect(
+        allWireframes.whereType<SRPlaceholderWireframe>(),
+        isEmpty,
+        reason: 'ExactAssetImage should not be masked under maskNonAssetsOnly',
+      );
+      expect(
+        allWireframes.whereType<SRImageWireframe>(),
+        isNotEmpty,
+        reason: 'ExactAssetImage should produce SRImageWireframe',
+      );
+    });
 
     testWidgets('maskNonAssetsOnly does not process non-asset', (tester) async {
       // Given

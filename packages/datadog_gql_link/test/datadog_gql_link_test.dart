@@ -3,6 +3,7 @@
 // Copyright 2023-Present Datadog, Inc.
 
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:datadog_common_test/datadog_common_test.dart';
 import 'package:datadog_common_test/uri_matchers.dart';
@@ -668,7 +669,7 @@ query UserInfo($id: ID!) {
           any(), any(), RumResourceType.native, any(), captureAny()));
       final capturedAttrs = captured.captured[0] as Map<String, dynamic>;
       expect(findInvalidAttribute(capturedAttrs), null);
-      expect(capturedAttrs['_dd']['graphql']['errors'], [
+      final expectedErrorString = json.encode([
         {
           'message': 'GraphQL Error Message',
           'locations': [
@@ -680,6 +681,7 @@ query UserInfo($id: ID!) {
           'path': ['heroes', 2, 'name'],
         }
       ]);
+      expect(capturedAttrs['_dd.graphql.errors'], expectedErrorString);
     });
 
     test('link supports mutation operations in attributes', () async {

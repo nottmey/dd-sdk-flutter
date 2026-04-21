@@ -354,14 +354,14 @@ class ImageRecorder implements ElementRecorder {
     }
   }
 
-  AssetImage? _extractAssetImage(Image widget) {
-    AssetImage? assetImage;
-    if (widget.image is AssetImage) {
-      assetImage = widget.image as AssetImage;
+  AssetBundleImageProvider? _extractAssetImage(Image widget) {
+    AssetBundleImageProvider? assetImage;
+    if (widget.image is AssetBundleImageProvider) {
+      assetImage = widget.image as AssetBundleImageProvider;
     } else if (widget.image is ResizeImage) {
       final resizeImage = widget.image as ResizeImage;
-      if (resizeImage.imageProvider is AssetImage) {
-        assetImage = resizeImage.imageProvider as AssetImage;
+      if (resizeImage.imageProvider is AssetBundleImageProvider) {
+        assetImage = resizeImage.imageProvider as AssetBundleImageProvider;
       }
     }
     return assetImage;

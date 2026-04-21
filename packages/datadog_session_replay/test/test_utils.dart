@@ -10,6 +10,7 @@ import 'dart:math';
 import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 
 Random _random = Random();
@@ -80,4 +81,42 @@ class TestImageProvider extends ImageProvider<TestImageProvider> {
 
   @override
   String toString() => '${describeIdentity(this)}()';
+}
+
+/// A test-friendly subclass of [ExactAssetImage] that provides a pre-built
+/// [ui.Image] instead of loading from an asset bundle.
+class TestExactAssetImage extends ExactAssetImage {
+  final ui.Image _testImage;
+  final Completer<ImageInfo> _completer = Completer<ImageInfo>.sync();
+
+  TestExactAssetImage(this._testImage) : super('test_asset.png', scale: 2.0);
+
+  @override
+  Future<AssetBundleImageKey> obtainKey(ImageConfiguration configuration) {
+    return SynchronousFuture<AssetBundleImageKey>(
+      AssetBundleImageKey(
+        bundle: _DummyAssetBundle(),
+        name: 'test_asset.png',
+        scale: 2.0,
+      ),
+    );
+  }
+
+  @override
+  ImageStreamCompleter loadImage(
+    AssetBundleImageKey key,
+    ImageDecoderCallback decode,
+  ) {
+    return OneFrameImageStreamCompleter(_completer.future);
+  }
+
+  void complete() {
+    _completer.complete(ImageInfo(image: _testImage));
+  }
+}
+
+class _DummyAssetBundle extends CachingAssetBundle {
+  @override
+  Future<ByteData> load(String key) async =>
+      throw UnsupportedError('DummyAssetBundle.load should not be called');
 }

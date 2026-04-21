@@ -20,7 +20,7 @@ class _GraphQLAttributes {
   static const operationType = '_dd.graphql.operation_type';
   static const operationName = '_dd.graphql.operation_name';
   static const variables = '_dd.graphql.variables';
-  static const errors = 'errors';
+  static const errors = '_dd.graphql.errors';
 }
 
 abstract interface class DatadogGqlListener {
@@ -63,16 +63,25 @@ class DatadogGqlLink extends Link {
     }
 
     final tracingHeaderTypes = datadogSdk.headerTypesForHost(uri);
+    final internalAttributes = _getInternalAttributes(request);
+
     TracingContext? tracingContext;
-    if (tracingHeaderTypes.isNotEmpty) {
-      tracingContext = generateTracingContext(datadogSdk, rum);
+    try {
+      if (tracingHeaderTypes.isNotEmpty) {
+        tracingContext = generateTracingContext(datadogSdk, rum);
+      }
+
+      request = _injectTracingHeaders(request);
+    } catch (e, st) {
+      datadogSdk.internalLogger.sendToDatadog(
+        '$DatadogGqlLink encountered an error attempting to create a tracing context; $e',
+        st,
+        e.runtimeType.toString(),
+      );
     }
 
-    final internalAttributes = _getInternalAttributes(request);
     Map<String, Object?> userAttributes = {};
     listener?.requestStarted(request, userAttributes);
-    request = _injectTracingHeaders(request);
-
     final resourceId = _startRumResource(
         request, internalAttributes, tracingContext, userAttributes);
 
@@ -91,7 +100,16 @@ class DatadogGqlLink extends Link {
           }
         }
 
-        final errorMap = _serializeResponseErrors(data);
+        Map<String, Object?>? errorMap;
+        try {
+          errorMap = _serializeResponseErrors(data);
+        } catch (e, st) {
+          datadogSdk.internalLogger.sendToDatadog(
+            '$DatadogGqlLink encountered an error serializing errors; $e',
+            st,
+            e.runtimeType.toString(),
+          );
+        }
 
         datadogSdk.rum?.stopResource(
           resourceId,
@@ -220,7 +238,7 @@ class DatadogGqlLink extends Link {
     return request;
   }
 
-  Map<String, Object?>? _serializeResponseErrors(Response response) {
+  Map<String, Object>? _serializeResponseErrors(Response response) {
     if (response.errors?.isEmpty ?? true) return null;
 
     final serializedErrors = response.errors!.map((e) {
@@ -236,11 +254,7 @@ class DatadogGqlLink extends Link {
       };
     }).toList();
     return {
-      '_dd': {
-        'graphql': {
-          _GraphQLAttributes.errors: serializedErrors,
-        }
-      }
+      _GraphQLAttributes.errors: json.encode(serializedErrors),
     };
   }
 }
