@@ -65,11 +65,19 @@ class KeyGenerator {
   // Starting key for resources
   static const int startingResourceKey = 0x100000;
 
+  /// Wireframe ids for non-element shapes (e.g. shadow approximations), disjoint
+  /// from [startingResourceKey] range used for image resources.
+  static const int startingAuxiliaryKey = 0x200000;
+
   var _nextElementKey = 0;
   var _nextResourceKey = startingResourceKey;
+  var _nextAuxiliaryKey = startingAuxiliaryKey;
 
   final Expando<int> _nodeIdExpando = Expando('sr-key');
   final Expando<int> _resourceIdExpando = Expando('sr-resource-key');
+  final Expando<Map<String, List<int>>> _auxiliaryKeysByElement = Expando(
+    'sr-aux-keys',
+  );
 
   int keyForElement(Element e) {
     var value = _nodeIdExpando[e];
@@ -96,6 +104,42 @@ class KeyGenerator {
 
     _resourceIdExpando[e] = value;
     return value;
+  }
+
+  /// Stable wireframe ids for shapes tied to [e] (e.g. box-shadow layers).
+  ///
+  /// The same [purpose] and [count] return the same ids on subsequent captures
+  /// so incremental updates match. If [count] grows, new ids are appended; if it
+  /// shrinks, the list is truncated while preserving prefix ids.
+  List<int> keysForAuxiliary(Element e, String purpose, int count) {
+    if (count <= 0) return const [];
+
+    var map = _auxiliaryKeysByElement[e];
+    if (map == null) {
+      map = <String, List<int>>{};
+      _auxiliaryKeysByElement[e] = map;
+    }
+
+    final existing = map[purpose];
+    if (existing != null && existing.length == count) {
+      return existing;
+    }
+    if (existing != null && existing.length > count) {
+      final trimmed = existing.sublist(0, count);
+      map[purpose] = trimmed;
+      return trimmed;
+    }
+
+    final result = List<int>.from(existing ?? const <int>[]);
+    while (result.length < count) {
+      result.add(_nextAuxiliaryKey);
+      _nextAuxiliaryKey++;
+      if (_nextAuxiliaryKey >= maxKey) {
+        _nextAuxiliaryKey = startingAuxiliaryKey;
+      }
+    }
+    map[purpose] = result;
+    return result;
   }
 }
 

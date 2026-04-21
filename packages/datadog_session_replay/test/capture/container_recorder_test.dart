@@ -4,7 +4,7 @@
 
 import 'package:datadog_common_test/datadog_common_test.dart';
 import 'package:datadog_session_replay/datadog_session_replay.dart';
-import 'package:datadog_session_replay/src/capture/capture_node.dart';
+import 'package:datadog_session_replay/src/capture/element_recorders/common_nodes.dart';
 import 'package:datadog_session_replay/src/capture/element_recorders/container_recorder.dart';
 import 'package:datadog_session_replay/src/capture/recorder.dart';
 import 'package:datadog_session_replay/src/extensions.dart';
@@ -12,29 +12,23 @@ import 'package:datadog_session_replay/src/rum_context.dart';
 import 'package:datadog_session_replay/src/sr_data_models.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:mocktail/mocktail.dart';
 
-import '../test_utils.dart';
 import 'simple_test_capture.dart';
 
-// Note: to properly test recorders, we need to supply a full widget tree, as Element
-// is too difficult to mock effectively.
 void main() {
   late SessionReplayRecorder recorder;
+  late KeyGenerator keys;
   late RUMContext context;
 
   setUp(() {
+    keys = KeyGenerator();
     recorder = SessionReplayRecorder.withCustomRecorders(
-      [ContainerRecorder(KeyGenerator())],
+      [ContainerRecorder(keys)],
       defaultCapturePrivacy: TreeCapturePrivacy(
         textAndInputPrivacyLevel: TextAndInputPrivacyLevel.maskSensitiveInputs,
         imagePrivacyLevel: ImagePrivacyLevel.maskNonAssetsOnly,
       ),
       touchPrivacyLevel: TouchPrivacyLevel.show,
-    );
-
-    registerFallbackValue(
-      CapturedViewAttributes(paintBounds: Rect.zero, scaleX: 1.0, scaleY: 1.0),
     );
 
     context = RUMContext(
@@ -44,538 +38,361 @@ void main() {
     recorder.updateContext(context);
   });
 
-  group('container', () {
-    testWidgets('returns captured node semantics', (tester) async {
-      // Given
-      final width = randomDouble(min: 10, max: 50);
-      final height = randomDouble(min: 10, max: 50);
-      final color = randomColor();
-      final tree = SimpleTestCapture(
-        key: Key('key'),
-        recorder: recorder,
-        child: Directionality(
-          textDirection: TextDirection.ltr,
-          child: Stack(
-            children: [
-              Container(
-                color: color,
-                width: width,
-                height: height,
-                child: Placeholder(),
-              ),
-            ],
-          ),
-        ),
+  group('dominantColorFromGradient', () {
+    test('two-stop black/white defaults to mid gray', () {
+      final c = dominantColorFromGradient(
+        const LinearGradient(colors: [Colors.black, Colors.white]),
       );
-      await tester.pumpWidget(tree);
-
-      // When
-      final capture = await recorder.performCapture();
-
-      // Then
-      expect(capture, isNotNull);
-      final treeCapture = capture!.viewTreeSnapshot;
-      expect(treeCapture, isNotNull);
-      expect(treeCapture.nodes.length, 1);
-      final containerNode = treeCapture.nodes.first;
-      expect(containerNode.attributes.x, 0);
-      expect(containerNode.attributes.y, 0);
-      expect(containerNode.attributes.width, width.round());
-      expect(containerNode.attributes.height, height.round());
-
-      final builtWireframes = containerNode.buildWireframes();
-      expect(builtWireframes.length, 1);
-      final shapeWireframe = builtWireframes.first as SRShapeWireframe;
-      expect(shapeWireframe.x, 0);
-      expect(shapeWireframe.y, 0);
-      expect(shapeWireframe.width, width.round());
-      expect(shapeWireframe.height, height.round());
-      expect(shapeWireframe.shapeStyle!.backgroundColor, color.toHexString());
+      expect(c, isNotNull);
+      expect(c!.toHexString(), '#808080ff');
     });
 
-    testWidgets('returns box decoration in wireframe', (tester) async {
-      // Given
-      final width = randomDouble(min: 10, max: 50);
-      final height = randomDouble(min: 10, max: 50);
-      final color = randomColor();
-      final tree = SimpleTestCapture(
-        key: Key('key'),
-        recorder: recorder,
-        child: Directionality(
-          textDirection: TextDirection.ltr,
-          child: Stack(
-            children: [
-              Container(
-                decoration: BoxDecoration(
-                  color: color,
-                  border: Border.all(width: 3.4, color: color),
-                  borderRadius: BorderRadius.circular(10.0),
-                ),
-                width: width,
-                height: height,
-                child: Placeholder(),
-              ),
-            ],
-          ),
-        ),
+    test('respects explicit stops for weighted average', () {
+      const colors = [Colors.red, Colors.green, Colors.blue];
+      const stops = [0.0, 0.25, 1.0];
+      final c = dominantColorFromGradient(
+        const LinearGradient(colors: colors, stops: stops),
       );
-      await tester.pumpWidget(tree);
+      expect(c, isNotNull);
 
-      // When
-      final capture = await recorder.performCapture();
-
-      // Then
-      expect(capture, isNotNull);
-      final treeCapture = capture!.viewTreeSnapshot;
-      final containerNode = treeCapture.nodes.first;
-
-      final builtWireframes = containerNode.buildWireframes();
-      final shapeWireframe = builtWireframes.first as SRShapeWireframe;
-      expect(shapeWireframe.border, isNotNull);
-      expect(shapeWireframe.border!.color, color.toHexString());
-      expect(shapeWireframe.border!.width, 3);
-      expect(shapeWireframe.shapeStyle!.cornerRadius, 10.0);
-      expect(shapeWireframe.shapeStyle!.backgroundColor, color.toHexString());
-    });
-
-    testWidgets('returns shape decoration in wireframe', (tester) async {
-      // Given
-      final width = randomDouble(min: 10, max: 50);
-      final height = randomDouble(min: 10, max: 50);
-      final radius = randomDouble(min: 0, max: 8);
-      final color = randomColor();
-      final borderColor = randomColor();
-      final tree = SimpleTestCapture(
-        key: Key('key'),
-        recorder: recorder,
-        child: Directionality(
-          textDirection: TextDirection.ltr,
-          child: Stack(
-            children: [
-              Container(
-                decoration: ShapeDecoration(
-                  color: color,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.all(Radius.circular(radius)),
-                    side: BorderSide(color: borderColor, width: 3.0),
-                  ),
-                ),
-                width: width,
-                height: height,
-                child: Placeholder(),
-              ),
-            ],
-          ),
-        ),
-      );
-      await tester.pumpWidget(tree);
-
-      // When
-      final capture = await recorder.performCapture();
-
-      // Then
-      expect(capture, isNotNull);
-      final treeCapture = capture!.viewTreeSnapshot;
-      final containerNode = treeCapture.nodes.first;
-
-      final builtWireframes = containerNode.buildWireframes();
-      final shapeWireframe = builtWireframes.first as SRShapeWireframe;
-      expect(shapeWireframe.border, isNotNull);
-      expect(shapeWireframe.border!.color, borderColor.toHexString());
-      expect(shapeWireframe.border!.width, 3);
-      expect(shapeWireframe.shapeStyle!.cornerRadius, radius);
-      expect(shapeWireframe.shapeStyle!.backgroundColor, color.toHexString());
+      var sumR = 0.0, sumG = 0.0, sumB = 0.0, sumA = 0.0, sumW = 0.0;
+      for (var i = 0; i < colors.length; i++) {
+        final prev = i == 0 ? 0.0 : (stops[i - 1] + stops[i]) / 2;
+        final next =
+            i == colors.length - 1 ? 1.0 : (stops[i] + stops[i + 1]) / 2;
+        final w = (next - prev).clamp(0.0, 1.0);
+        final col = colors[i];
+        sumR += col.r * w;
+        sumG += col.g * w;
+        sumB += col.b * w;
+        sumA += col.a * w;
+        sumW += w;
+      }
+      expect(c!.r, closeTo(sumR / sumW, 1e-5));
+      expect(c.g, closeTo(sumG / sumW, 1e-5));
+      expect(c.b, closeTo(sumB / sumW, 1e-5));
+      expect(c.a, closeTo(sumA / sumW, 1e-5));
     });
   });
 
-  group('decorated box', () {
-    testWidgets('returns box decoration in wireframe', (tester) async {
-      // Given
-      final width = randomDouble(min: 10, max: 50);
-      final height = randomDouble(min: 10, max: 50);
-      final color = randomColor();
-      final borderColor = randomColor();
-      final tree = SimpleTestCapture(
-        key: Key('key'),
+  testWidgets('solid BoxDecoration captures background only', (tester) async {
+    const w = 80.0;
+    const h = 40.0;
+    await tester.pumpWidget(
+      SimpleTestCapture(
+        key: const Key('solid'),
         recorder: recorder,
         child: Directionality(
           textDirection: TextDirection.ltr,
-          child: Stack(
-            children: [
-              DecoratedBox(
-                decoration: BoxDecoration(
-                  color: color,
-                  borderRadius: BorderRadius.circular(3.0),
-                  border: Border.all(color: borderColor, width: 5.0),
-                ),
-                child: SizedBox(width: width, height: height),
-              ),
-            ],
-          ),
-        ),
-      );
-      await tester.pumpWidget(tree);
-
-      // When
-      final capture = await recorder.performCapture();
-
-      // Then
-      expect(capture, isNotNull);
-      final treeCapture = capture!.viewTreeSnapshot;
-      expect(treeCapture, isNotNull);
-      expect(treeCapture.nodes.length, 1);
-      final containerNode = treeCapture.nodes.first;
-      expect(containerNode.attributes.x, 0);
-      expect(containerNode.attributes.y, 0);
-      expect(containerNode.attributes.width, width.round());
-      expect(containerNode.attributes.height, height.round());
-
-      final builtWireframes = containerNode.buildWireframes();
-      expect(builtWireframes.length, 1);
-      final shapeWireframe = builtWireframes.first as SRShapeWireframe;
-      expect(shapeWireframe.border, isNotNull);
-      expect(shapeWireframe.border!.color, borderColor.toHexString());
-      expect(shapeWireframe.border!.width, 5.0);
-      expect(shapeWireframe.shapeStyle!.cornerRadius, 3.0);
-      expect(shapeWireframe.shapeStyle!.backgroundColor, color.toHexString());
-      expect(shapeWireframe.shapeStyle!.backgroundColor, color.toHexString());
-    });
-
-    testWidgets('returns shape decoration in wireframe', (tester) async {
-      // Given
-      final width = randomDouble(min: 10, max: 50);
-      final height = randomDouble(min: 10, max: 50);
-      final color = randomColor();
-      final borderColor = randomColor();
-      final tree = SimpleTestCapture(
-        key: Key('key'),
-        recorder: recorder,
-        child: Directionality(
-          textDirection: TextDirection.ltr,
-          child: Stack(
-            children: [
-              DecoratedBox(
-                decoration: ShapeDecoration(
-                  color: color,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(3.0),
-                    side: BorderSide(color: borderColor, width: 5.0),
+          child: SizedBox(
+            width: 200,
+            height: 100,
+            child: Stack(
+              children: [
+                Positioned(
+                  left: 0,
+                  top: 0,
+                  child: SizedBox(
+                    width: w,
+                    height: h,
+                    child: DecoratedBox(
+                      decoration: const BoxDecoration(
+                        color: Colors.red,
+                      ),
+                    ),
                   ),
                 ),
-                child: SizedBox(width: width, height: height),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
-      );
-      await tester.pumpWidget(tree);
+      ),
+    );
 
-      // When
-      final capture = await recorder.performCapture();
+    final capture = await recorder.performCapture();
+    expect(capture, isNotNull);
+    final node = capture!.viewTreeSnapshot.nodes.single as ContainerNode;
+    expect(node.style.backgroundColor, Colors.red.toHexString());
+    expect(node.style.shadows, isEmpty);
 
-      // Then
-      expect(capture, isNotNull);
-      final treeCapture = capture!.viewTreeSnapshot;
-      expect(treeCapture, isNotNull);
-      expect(treeCapture.nodes.length, 1);
-      final containerNode = treeCapture.nodes.first;
-      expect(containerNode.attributes.x, 0);
-      expect(containerNode.attributes.y, 0);
-      expect(containerNode.attributes.width, width.round());
-      expect(containerNode.attributes.height, height.round());
-
-      final builtWireframes = containerNode.buildWireframes();
-      expect(builtWireframes.length, 1);
-      final shapeWireframe = builtWireframes.first as SRShapeWireframe;
-      expect(shapeWireframe.border, isNotNull);
-      expect(shapeWireframe.border!.color, borderColor.toHexString());
-      expect(shapeWireframe.border!.width, 5.0);
-      expect(shapeWireframe.shapeStyle!.cornerRadius, 3.0);
-      expect(shapeWireframe.shapeStyle!.backgroundColor, color.toHexString());
-      expect(shapeWireframe.shapeStyle!.backgroundColor, color.toHexString());
-    });
+    final wfs = node.buildWireframes();
+    expect(wfs, hasLength(1));
+    final shape = wfs.single as SRShapeWireframe;
+    expect(shape.shapeStyle?.backgroundColor, Colors.red.toHexString());
   });
 
-  group('material', () {
-    testWidgets('returns captured node semantics', (tester) async {
-      // Given
-      final width = randomDouble(min: 10, max: 50);
-      final height = randomDouble(min: 10, max: 50);
-      final color = randomColor();
-      final tree = SimpleTestCapture(
-        key: Key('key'),
+  testWidgets('gradient BoxDecoration uses dominant color', (tester) async {
+    const w = 80.0;
+    const h = 40.0;
+    await tester.pumpWidget(
+      SimpleTestCapture(
+        key: const Key('grad'),
         recorder: recorder,
         child: Directionality(
           textDirection: TextDirection.ltr,
-          child: Stack(
-            children: [
-              SizedBox(
-                width: width,
-                height: height,
-                child: Material(color: color, child: Placeholder()),
-              ),
-            ],
-          ),
-        ),
-      );
-      await tester.pumpWidget(tree);
-
-      // When
-      final capture = await recorder.performCapture();
-
-      // Then
-      expect(capture, isNotNull);
-      final treeCapture = capture!.viewTreeSnapshot;
-      expect(treeCapture, isNotNull);
-      expect(treeCapture.nodes.length, 1);
-      final containerNode = treeCapture.nodes.first;
-      expect(containerNode.attributes.x, 0);
-      expect(containerNode.attributes.y, 0);
-      expect(containerNode.attributes.width, width.round());
-      expect(containerNode.attributes.height, height.round());
-
-      final builtWireframes = containerNode.buildWireframes();
-      expect(builtWireframes.length, 1);
-      final shapeWireframe = builtWireframes.first as SRShapeWireframe;
-      expect(shapeWireframe.x, 0);
-      expect(shapeWireframe.y, 0);
-      expect(shapeWireframe.width, width.round());
-      expect(shapeWireframe.height, height.round());
-      expect(shapeWireframe.shapeStyle!.backgroundColor, color.toHexString());
-    });
-
-    testWidgets('returns border for StadiumBorder in wireframe', (
-      tester,
-    ) async {
-      // Given
-      final width = randomDouble(min: 10, max: 50);
-      final height = randomDouble(min: 10, max: 50);
-      final color = randomColor();
-      final tree = SimpleTestCapture(
-        key: Key('key'),
-        recorder: recorder,
-        child: Directionality(
-          textDirection: TextDirection.ltr,
-          child: Stack(
-            children: [
-              SizedBox(
-                width: width,
-                height: height,
-                child: Material(
-                  shape: StadiumBorder(
-                    side: BorderSide(color: color, width: 3),
+          child: SizedBox(
+            width: 200,
+            height: 100,
+            child: Stack(
+              children: [
+                Positioned(
+                  left: 0,
+                  top: 0,
+                  child: SizedBox(
+                    width: w,
+                    height: h,
+                    child: DecoratedBox(
+                      decoration: const BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [Colors.black, Colors.white],
+                        ),
+                      ),
+                    ),
                   ),
-                  child: Placeholder(),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
-      );
-      await tester.pumpWidget(tree);
+      ),
+    );
 
-      // When
-      final capture = await recorder.performCapture();
+    final capture = await recorder.performCapture();
+    expect(capture, isNotNull);
+    final node = capture!.viewTreeSnapshot.nodes.single as ContainerNode;
+    expect(node.style.backgroundColor, '#808080ff');
+    expect(node.buildWireframes(), hasLength(1));
+  });
 
-      // Then
-      expect(capture, isNotNull);
-      final treeCapture = capture!.viewTreeSnapshot;
-      final containerNode = treeCapture.nodes.first;
-
-      final cornerRadius = width > height ? height / 2 : width / 2;
-      final builtWireframes = containerNode.buildWireframes();
-      final shapeWireframe = builtWireframes.first as SRShapeWireframe;
-      expect(shapeWireframe.border, isNotNull);
-      expect(shapeWireframe.border!.color, color.toHexString());
-      expect(shapeWireframe.border!.width, 3);
-      expect(shapeWireframe.shapeStyle!.cornerRadius, cornerRadius);
-    });
-
-    testWidgets('returns border for CircleBorder in wireframe', (tester) async {
-      // Given
-      final size = randomDouble(min: 10, max: 50);
-      final color = randomColor();
-      final tree = SimpleTestCapture(
-        key: Key('key'),
+  testWidgets('BoxDecoration boxShadow emits shape behind container', (
+    tester,
+  ) async {
+    const w = 80.0;
+    const h = 40.0;
+    await tester.pumpWidget(
+      SimpleTestCapture(
+        key: const Key('shadow1'),
         recorder: recorder,
         child: Directionality(
           textDirection: TextDirection.ltr,
-          child: Stack(
-            children: [
-              SizedBox(
-                width: size,
-                height: size,
-                child: Material(
-                  shape: CircleBorder(side: BorderSide(color: color, width: 3)),
-                  child: Placeholder(),
-                ),
-              ),
-            ],
-          ),
-        ),
-      );
-      await tester.pumpWidget(tree);
-
-      // When
-      final capture = await recorder.performCapture();
-
-      // Then
-      expect(capture, isNotNull);
-      final treeCapture = capture!.viewTreeSnapshot;
-      final containerNode = treeCapture.nodes.first;
-
-      final cornerRadius = size / 2;
-      final builtWireframes = containerNode.buildWireframes();
-      final shapeWireframe = builtWireframes.first as SRShapeWireframe;
-      expect(shapeWireframe.border, isNotNull);
-      expect(shapeWireframe.border!.color, color.toHexString());
-      expect(shapeWireframe.border!.width, 3);
-      expect(shapeWireframe.shapeStyle!.cornerRadius, cornerRadius);
-    });
-
-    testWidgets('returns border for RoundedRectangle in wireframe', (
-      tester,
-    ) async {
-      // Given
-      final size = randomDouble(min: 10, max: 50);
-      final radius = randomDouble(min: 4, max: 10);
-      final color = randomColor();
-      final tree = SimpleTestCapture(
-        key: Key('key'),
-        recorder: recorder,
-        child: Directionality(
-          textDirection: TextDirection.ltr,
-          child: Stack(
-            children: [
-              SizedBox(
-                width: size,
-                height: size,
-                child: Material(
-                  shape: RoundedRectangleBorder(
-                    side: BorderSide(color: color, width: 3.0),
-                    borderRadius: BorderRadius.all(Radius.circular(radius)),
+          child: SizedBox(
+            width: 200,
+            height: 100,
+            child: Stack(
+              children: [
+                Positioned(
+                  left: 0,
+                  top: 0,
+                  child: SizedBox(
+                    width: w,
+                    height: h,
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        boxShadow: const [
+                          BoxShadow(
+                            color: Colors.black,
+                            offset: Offset(3, 4),
+                            blurRadius: 2,
+                            spreadRadius: 1,
+                          ),
+                        ],
+                      ),
+                    ),
                   ),
-                  child: Placeholder(),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
-      );
-      await tester.pumpWidget(tree);
+      ),
+    );
 
-      // When
-      final capture = await recorder.performCapture();
+    final capture = await recorder.performCapture();
+    expect(capture, isNotNull);
+    final node = capture!.viewTreeSnapshot.nodes.single as ContainerNode;
+    expect(node.style.shadows, hasLength(1));
 
-      // Then
-      expect(capture, isNotNull);
-      final treeCapture = capture!.viewTreeSnapshot;
-      final containerNode = treeCapture.nodes.first;
+    final wfs = node.buildWireframes();
+    expect(wfs, hasLength(2));
 
-      final builtWireframes = containerNode.buildWireframes();
-      final shapeWireframe = builtWireframes.first as SRShapeWireframe;
-      expect(shapeWireframe.border, isNotNull);
-      expect(shapeWireframe.border!.color, color.toHexString());
-      expect(shapeWireframe.border!.width, 3);
-      expect(shapeWireframe.shapeStyle!.cornerRadius, radius);
-    });
+    final shadow = wfs[0] as SRShapeWireframe;
+    final main = wfs[1] as SRShapeWireframe;
+    expect(shadow.id, isNot(main.id));
+    expect(shadow.shapeStyle?.backgroundColor, '#00000080');
 
-    testWidgets('returns border for RoundedRectangle in wireframe', (
-      tester,
-    ) async {
-      // Given
-      final size = randomDouble(min: 10, max: 50);
-      final radius = randomDouble(min: 4, max: 10);
-      final color = randomColor();
-      final tree = SimpleTestCapture(
-        key: Key('key'),
+    final spreadPx = (1.0 + 2.0 * 0.5).round(); // 2
+    expect(shadow.x, main.x + 3 - spreadPx);
+    expect(shadow.y, main.y + 4 - spreadPx);
+    expect(shadow.width, main.width + 2 * spreadPx);
+    expect(shadow.height, main.height + 2 * spreadPx);
+  });
+
+  testWidgets('multiple BoxShadow preserves order', (tester) async {
+    await tester.pumpWidget(
+      SimpleTestCapture(
+        key: const Key('shadow2'),
         recorder: recorder,
         child: Directionality(
           textDirection: TextDirection.ltr,
-          child: Stack(
-            children: [
-              SizedBox(
-                width: size,
-                height: size,
-                child: Material(
-                  shape: RoundedRectangleBorder(
-                    side: BorderSide(color: color, width: 3.0),
-                    borderRadius: BorderRadius.all(Radius.circular(radius)),
+          child: SizedBox(
+            width: 200,
+            height: 100,
+            child: Stack(
+              children: [
+                Positioned(
+                  left: 0,
+                  top: 0,
+                  child: SizedBox(
+                    width: 60,
+                    height: 30,
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: Colors.blue,
+                        boxShadow: const [
+                          BoxShadow(
+                            color: Color(0xffff0000),
+                            offset: Offset(1, 0),
+                            blurRadius: 0,
+                            spreadRadius: 0,
+                          ),
+                          BoxShadow(
+                            color: Color(0xff00ff00),
+                            offset: Offset(2, 0),
+                            blurRadius: 0,
+                            spreadRadius: 0,
+                          ),
+                        ],
+                      ),
+                    ),
                   ),
-                  child: Placeholder(),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
-      );
-      await tester.pumpWidget(tree);
+      ),
+    );
 
-      // When
-      final capture = await recorder.performCapture();
+    final capture = await recorder.performCapture();
+    final node = capture!.viewTreeSnapshot.nodes.single as ContainerNode;
+    expect(node.style.shadows, hasLength(2));
 
-      // Then
-      expect(capture, isNotNull);
-      final treeCapture = capture!.viewTreeSnapshot;
-      final containerNode = treeCapture.nodes.first;
+    final wfs = node.buildWireframes();
+    expect(wfs, hasLength(3));
+    expect(
+        (wfs[0] as SRShapeWireframe).shapeStyle?.backgroundColor, '#ff000080');
+    expect(
+        (wfs[1] as SRShapeWireframe).shapeStyle?.backgroundColor, '#00ff0080');
+  });
 
-      final builtWireframes = containerNode.buildWireframes();
-      final shapeWireframe = builtWireframes.first as SRShapeWireframe;
-      expect(shapeWireframe.border, isNotNull);
-      expect(shapeWireframe.border!.color, color.toHexString());
-      expect(shapeWireframe.border!.width, 3);
-      expect(shapeWireframe.shapeStyle!.cornerRadius, radius);
-    });
-
-    testWidgets('returns surface tinted color when elevated in wireframe', (
-      tester,
-    ) async {
-      // Given
-      final elevation = randomDouble(min: 0, max: 3);
-      final size = randomDouble(min: 10, max: 50);
-      final color = randomColor();
-      final tree = SimpleTestCapture(
-        key: Key('key'),
+  testWidgets('ShapeDecoration gradient and shadows', (tester) async {
+    await tester.pumpWidget(
+      SimpleTestCapture(
+        key: const Key('shape'),
         recorder: recorder,
         child: Directionality(
           textDirection: TextDirection.ltr,
-          child: Stack(
-            children: [
-              SizedBox(
-                width: size,
-                height: size,
-                child: Material(
-                  elevation: elevation,
-                  color: color,
-                  surfaceTintColor: Colors.blue,
-                  child: Placeholder(),
+          child: SizedBox(
+            width: 200,
+            height: 100,
+            child: Stack(
+              children: [
+                Positioned(
+                  left: 0,
+                  top: 0,
+                  child: SizedBox(
+                    width: 70,
+                    height: 35,
+                    child: DecoratedBox(
+                      decoration: ShapeDecoration(
+                        gradient: const LinearGradient(
+                          colors: [Colors.blue, Colors.red],
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        shadows: const [
+                          BoxShadow(
+                            color: Colors.black54,
+                            offset: Offset(0, 2),
+                            blurRadius: 4,
+                            spreadRadius: 0,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
-      );
-      await tester.pumpWidget(tree);
+      ),
+    );
 
-      // When
-      final capture = await recorder.performCapture();
+    final capture = await recorder.performCapture();
+    final node = capture!.viewTreeSnapshot.nodes.single as ContainerNode;
+    expect(node.style.backgroundColor, isNotNull);
+    expect(node.style.shadows, hasLength(1));
 
-      // Then
-      final expectedTintedColor = ElevationOverlay.applySurfaceTint(
-        color,
-        Colors.blue,
-        elevation,
-      );
-      expect(capture, isNotNull);
-      final treeCapture = capture!.viewTreeSnapshot;
-      final containerNode = treeCapture.nodes.first;
+    final wfs = node.buildWireframes();
+    expect(wfs, hasLength(2));
+    expect(wfs[0], isA<SRShapeWireframe>());
+    expect(wfs[1], isA<SRShapeWireframe>());
+  });
 
-      final builtWireframes = containerNode.buildWireframes();
-      final shapeWireframe = builtWireframes.first as SRShapeWireframe;
-      expect(
-        shapeWireframe.shapeStyle!.backgroundColor,
-        expectedTintedColor.toHexString(),
-      );
-    });
+  testWidgets('shadow wireframe ids stable across captures', (tester) async {
+    await tester.pumpWidget(
+      SimpleTestCapture(
+        key: const Key('stable'),
+        recorder: recorder,
+        child: Directionality(
+          textDirection: TextDirection.ltr,
+          child: SizedBox(
+            width: 200,
+            height: 100,
+            child: Stack(
+              children: [
+                Positioned(
+                  left: 0,
+                  top: 0,
+                  child: SizedBox(
+                    width: 50,
+                    height: 50,
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        boxShadow: const [
+                          BoxShadow(
+                            color: Colors.black,
+                            blurRadius: 0,
+                            spreadRadius: 0,
+                            offset: Offset(2, 2),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+
+    final c1 = await recorder.performCapture();
+    final c2 = await recorder.performCapture();
+    expect(c1, isNotNull);
+    expect(c2, isNotNull);
+
+    final n1 = c1!.viewTreeSnapshot.nodes.single as ContainerNode;
+    final n2 = c2!.viewTreeSnapshot.nodes.single as ContainerNode;
+
+    final w1 = n1.buildWireframes();
+    final w2 = n2.buildWireframes();
+    expect((w1[0] as SRShapeWireframe).id, (w2[0] as SRShapeWireframe).id);
+    expect((w1[1] as SRShapeWireframe).id, (w2[1] as SRShapeWireframe).id);
   });
 }

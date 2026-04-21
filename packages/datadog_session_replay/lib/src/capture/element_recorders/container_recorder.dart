@@ -49,8 +49,19 @@ class ContainerRecorder implements ElementRecorder {
 
     attributes = _adjustAttributesForShape(widget, attributes);
 
+    final resolvedStyle = style!;
     final key = keyGenerator.keyForElement(element);
-    final node = ContainerNode(attributes, wireframeId: key, style: style!);
+    final shadowIds = keyGenerator.keysForAuxiliary(
+      element,
+      'containerShadow',
+      resolvedStyle.shadows.length,
+    );
+    final node = ContainerNode(
+      attributes,
+      wireframeId: key,
+      style: resolvedStyle,
+      shadowWireframeIds: shadowIds,
+    );
     return AmbiguousElement(nodes: [node]);
   }
 
