@@ -151,11 +151,15 @@ class SessionReplayRecorder {
     DatadogTimeProvider timeProvider = const DefaultTimeProvider(),
     required TreeCapturePrivacy defaultCapturePrivacy,
     required TouchPrivacyLevel touchPrivacyLevel,
+    ImageDownscaling imageDownscaling = ImageDownscaling.disabled,
+    int maxImagePixelBudget = defaultMaxImagePixelBudget,
   }) : this._(
           KeyGenerator(),
           timeProvider,
           defaultCapturePrivacy,
           touchPrivacyLevel,
+          imageDownscaling,
+          maxImagePixelBudget,
         );
 
   SessionReplayRecorder._(
@@ -163,13 +167,19 @@ class SessionReplayRecorder {
     this._timeProvider,
     this._defaultTreeCapturePrivacy,
     this._touchPrivacyLevel,
+    ImageDownscaling imageDownscaling,
+    int maxImagePixelBudget,
   ) {
     _elementRecorders.addAll([
       ContainerRecorder(keyGenerator),
       TextElementRecorder(keyGenerator),
       EditableTextRecorder(keyGenerator),
       InputDecoratorRecorder(keyGenerator),
-      ImageRecorder(keyGenerator),
+      ImageRecorder(
+        keyGenerator,
+        imageDownscaling: imageDownscaling,
+        maxImagePixelBudget: maxImagePixelBudget,
+      ),
       CustomPaintRecorder(keyGenerator),
       PrivacyRecorder(keyGenerator),
       CheckboxRecorder(keyGenerator),

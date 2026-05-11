@@ -32,6 +32,12 @@ void main() {
     expect(c.fontFamilyTransform.rules, isEmpty);
   });
 
+  test('DatadogSessionReplayConfiguration default imageDownscaling is disabled',
+      () {
+    final c = DatadogSessionReplayConfiguration(replaySampleRate: 100.0);
+    expect(c.imageDownscaling, ImageDownscaling.disabled);
+  });
+
   group('DatadogSessionReplay', () {
     final mockPlatform = MockDatadogSessionReplayPlatform();
     final mockInternalLogger = MockInternalLogger();
