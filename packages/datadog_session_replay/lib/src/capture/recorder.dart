@@ -19,6 +19,7 @@ import 'element_recorders/cupertino_widgets/cupertino_radio_recorder.dart';
 import 'element_recorders/cupertino_widgets/cupertino_switch_recorder.dart';
 import 'element_recorders/custom_paint_recorder.dart';
 import 'element_recorders/editable_text_recorder.dart';
+import 'element_recorders/icon_recorder.dart';
 import 'element_recorders/image_recorder.dart';
 import 'element_recorders/material_widgets/checkbox_recorder.dart';
 import 'element_recorders/material_widgets/radio_recorder.dart';
@@ -153,6 +154,7 @@ class SessionReplayRecorder {
     required TouchPrivacyLevel touchPrivacyLevel,
     ImageDownscaling imageDownscaling = ImageDownscaling.disabled,
     int maxImagePixelBudget = defaultMaxImagePixelBudget,
+    double iconRasterLogicalSize = 20.0,
   }) : this._(
           KeyGenerator(),
           timeProvider,
@@ -160,6 +162,7 @@ class SessionReplayRecorder {
           touchPrivacyLevel,
           imageDownscaling,
           maxImagePixelBudget,
+          iconRasterLogicalSize,
         );
 
   SessionReplayRecorder._(
@@ -169,10 +172,15 @@ class SessionReplayRecorder {
     this._touchPrivacyLevel,
     ImageDownscaling imageDownscaling,
     int maxImagePixelBudget,
+    double iconRasterLogicalSize,
   ) {
     _elementRecorders.addAll([
       ContainerRecorder(keyGenerator),
       TextElementRecorder(keyGenerator),
+      IconRecorder(
+        keyGenerator,
+        iconRasterLogicalSize: iconRasterLogicalSize,
+      ),
       EditableTextRecorder(keyGenerator),
       InputDecoratorRecorder(keyGenerator),
       ImageRecorder(
@@ -267,20 +275,29 @@ class SessionReplayRecorder {
     final addedProcessingTimelineTask = TimelineTask()
       ..start('Datadog SR Capture Processing');
 
-    // Process anything that needs additional processing
+    // Process anything that needs additional processing (parallelize so
+    // multiple icons/images don't serialize their async work).
     final nodes = <CaptureNode>[];
-    for (var s in capturedSemantics) {
-      try {
+    final resolved = await Future.wait(
+      capturedSemantics.map((s) async {
         if (s is AdditionalProcessingElement) {
-          s = await s.process();
+          try {
+            return await s.process();
+          } catch (e, st) {
+            DatadogSessionReplayPlatform.instance.telemetryError(
+              'Exception during session replay capture: $e',
+              e.runtimeType.toString(),
+              st.toString(),
+            );
+            return null;
+          }
         }
+        return s;
+      }),
+    );
+    for (final s in resolved) {
+      if (s != null) {
         nodes.addAll(s.nodes);
-      } catch (e, st) {
-        DatadogSessionReplayPlatform.instance.telemetryError(
-          'Exception during session replay capture: $e',
-          e.runtimeType.toString(),
-          st.toString(),
-        );
       }
     }
     addedProcessingTimelineTask.finish();

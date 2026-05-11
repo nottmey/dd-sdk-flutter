@@ -193,6 +193,15 @@ class DatadogSessionReplayConfiguration {
   /// Defaults to approximately 800×800 decoded pixels.
   int maxImagePixelBudget;
 
+  /// Logical size (dp) at which icon glyphs are rasterized for session replay.
+  ///
+  /// The replay player scales the bitmap to the widget's on-screen bounds.
+  /// Smaller values reduce CPU/GPU work and memory; larger values improve
+  /// sharpness when icons are displayed big.
+  ///
+  /// Defaults to `20`.
+  double iconRasterLogicalSize;
+
   DatadogSessionReplayConfiguration({
     required this.replaySampleRate,
     this.textAndInputPrivacyLevel = TextAndInputPrivacyLevel.maskAll,
@@ -203,6 +212,7 @@ class DatadogSessionReplayConfiguration {
     this.fontFamilyTransform = const FontFamilyTransformConfig(),
     this.imageDownscaling = ImageDownscaling.disabled,
     this.maxImagePixelBudget = defaultMaxImagePixelBudget,
+    this.iconRasterLogicalSize = 20.0,
   });
 }
 
